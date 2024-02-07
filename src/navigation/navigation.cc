@@ -173,6 +173,11 @@ tuple<float, float> Navigation::GetCurvature(const vector<Vector2f>& point_cloud
   const float base_link_to_front = (car_length + wheel_base) / 2;
 
   float goal = 5;
+  Vector2f base_link(0, 0);
+
+  for (Vector2f point: point_cloud) {
+    visualization::DrawCross(point, 0.01, 0xFF0000, local_viz_msg_);
+  }
 
   const vector<float> curvature_candidates {-1.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5, 0.75, 1.0};
   vector<float> scores;
@@ -183,7 +188,9 @@ tuple<float, float> Navigation::GetCurvature(const vector<Vector2f>& point_cloud
     // float free_path_length = 0;
     // float clearance = 0;
     // float distance_to_goal = 0;
+    Vector2f point_of_interest;
     if (curvature_candidate == 0) {
+      point_of_interest << 5 + base_link_to_front + safety_margin, 0;
       float free_path_length = goal;
       float clearance = 1;
       // float distance_to_goal = goal;
@@ -192,7 +199,11 @@ tuple<float, float> Navigation::GetCurvature(const vector<Vector2f>& point_cloud
           continue;
         }
         if (abs(point[1]) < base_link_to_side + safety_margin) {  // hit front
+          if (point[0] - base_link_to_front - safety_margin < free_path_length) {
+            point_of_interest << point[0], 0;
+          }
           free_path_length = min(free_path_length, point[0] - base_link_to_front - safety_margin);
+          
           // clearance = 0;
         } else {
           // free_path_length = min(free_path_length, goal[0]);
@@ -202,6 +213,9 @@ tuple<float, float> Navigation::GetCurvature(const vector<Vector2f>& point_cloud
       }
       scores.push_back(free_path_length);// + clearance);
       free_path_lengths.push_back(free_path_length);
+
+      visualization::DrawCross(point_of_interest, 0.1, 0xFF0000, local_viz_msg_);
+      visualization::DrawLine(base_link, point_of_interest, 0xFF0000, local_viz_msg_);
       continue;
     }
     float turning_radius = abs(1 / curvature_candidate);
@@ -214,10 +228,12 @@ tuple<float, float> Navigation::GetCurvature(const vector<Vector2f>& point_cloud
       turning_center << 0.0, -turning_radius;
       front_close << base_link_to_front, -base_link_to_side;
       front_far << base_link_to_front, base_link_to_side;
+      // point_of_interest << (sqrt(2)/2)*turning_radius, (sqrt(2)/2-1)*turning_radius;
     } else {
       turning_center << 0.0, turning_radius;
       front_close << base_link_to_front, base_link_to_side;
       front_far << base_link_to_front, -base_link_to_side;
+      // point_of_interest << (sqrt(2)/2)*turning_radius, (1-sqrt(2)/2)*turning_radius;
     }
     float max_radius = GetDistance(turning_center, front_far);
     float front_radius = GetDistance(turning_center, front_close);
@@ -225,17 +241,36 @@ tuple<float, float> Navigation::GetCurvature(const vector<Vector2f>& point_cloud
     // float max_free_path_angle = atan(abs(turning_center[0] - goal[0]) / abs(turning_center[1] - goal[1]));
     // float max_free_path_angle = atan(goal / abs(turning_center[1]));
     float max_free_path_angle = atan(1);
-    float free_path_length = max_free_path_angle * turning_radius;
+    float angle_of_interest = max_free_path_angle;
+    float free_path_length = min(max_free_path_angle * turning_radius, goal);
     // float distance_to_goal = get_distance(goal, turning_center) - turning_radius;
     float clearance = 1;
     // cout << "turning_radius: " << turning_center[1] << "\n";
     // cout << "max_angle: " << max_free_path_angle << "\n";
+    // float base_angle;
+    if (turning_radius > front_radius) {
+      max_free_path_angle += asin(base_link_to_front / turning_radius);
+    } else {
+      max_free_path_angle += acos((turning_radius - base_link_to_side) / turning_radius);
+    }
+    if (curvature_candidate > 0) {
+      point_of_interest << sin(max_free_path_angle) * turning_radius, (1-cos(max_free_path_angle))*turning_radius;
+    } else {
+      point_of_interest << sin(max_free_path_angle) * turning_radius, (cos(max_free_path_angle)-1)*turning_radius;
+    }
+    // float angle_of_interest = max_free_path_angle;
 
     for (Vector2f point: point_cloud) {
       if (point[0] <= 0) {
         continue;
       }
-      float angle = asin(point[0] / abs(turning_center[1] - point[1]));
+      if (curvature_candidate < 0 && point[1] < turning_center[1]) {
+        continue;
+      }
+      if (curvature_candidate > 0 && point[1] > turning_center[1]) {
+        continue;
+      }
+      float angle = atan(point[0] / abs(turning_center[1] - point[1]));
       if (angle >= max_free_path_angle) {
         continue;
       }
@@ -250,17 +285,28 @@ tuple<float, float> Navigation::GetCurvature(const vector<Vector2f>& point_cloud
         if (distance_to_center > front_radius) {  // hit front
           hit_point_angle = asin(base_link_to_front / distance_to_center);
         } else {  // hit side
-          hit_point_angle = acos((turning_radius - base_link_to_side) / distance_to_center);
+          hit_point_angle = acos(min_radius / distance_to_center);
         }
         if (angle > hit_point_angle) {
-          free_path_length = min(free_path_length, (angle - hit_point_angle) * distance_to_center);
-        }// } else {
-        //   free_path_length = 0;
-        // }
+          if ((angle - hit_point_angle) * turning_radius > free_path_length) {
+            angle_of_interest = angle;
+            point_of_interest << point[0], point[1];
+          }
+          free_path_length = min(free_path_length, (angle - hit_point_angle) * turning_radius);
+        } else {
+          free_path_length = 0;
+        }
       }
     }
     scores.push_back(free_path_length);// + clearance);
     free_path_lengths.push_back(free_path_length);
+
+    visualization::DrawCross(point_of_interest, 0.1, 0xFF0000, local_viz_msg_);
+    if (curvature_candidate > 0) {
+      visualization::DrawArc(turning_center, turning_radius, -atan(1)*2, angle_of_interest-atan(1)*2, 0xFF0000, local_viz_msg_);
+    } else {
+      visualization::DrawArc(turning_center, turning_radius, atan(1)*2-angle_of_interest, atan(1)*2, 0xFF0000, local_viz_msg_);
+    }
   }
 
   float max_score = 0;
