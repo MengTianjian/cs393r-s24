@@ -100,6 +100,9 @@ class Navigation {
   float nav_goal_angle_;
   // Map of the environment.
   vector_map::VectorMap map_;
+
+  std::tuple<float, float> GetCurvature(const std::vector<Eigen::Vector2f>& point_cloud);
+  float GetVelocity(const Eigen::Vector2f& vel, float distance_to_goal);
 };
 
 }  // namespace navigation
