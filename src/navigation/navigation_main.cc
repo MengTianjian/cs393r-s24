@@ -88,13 +88,13 @@ void LaserCallback(const sensor_msgs::LaserScan& msg) {
   static vector<Vector2f> point_cloud_;
   point_cloud_.clear();
   // Convert the LaserScan to a point cloud
-  float angle = msg.angle_max;
+  float angle = msg.angle_min;
   for (float range: msg.ranges) {
     if (range > msg.range_min && range < msg.range_max) {
       Vector2f point(range * cos(angle), range * sin(angle));
       point_cloud_.push_back(point + kLaserLoc);
     }
-    angle -= msg.angle_increment;
+    angle += msg.angle_increment;
   }
   // The LaserScan parameters are accessible as follows:
   // msg.angle_increment // Angular increment between subsequent rays
