@@ -223,7 +223,8 @@ tuple<float, float> Navigation::GetCurvature(const vector<Vector2f>& point_cloud
     float front_radius = GetDistance(turning_center, front_close);
 
     // float max_free_path_angle = atan(abs(turning_center[0] - goal[0]) / abs(turning_center[1] - goal[1]));
-    float max_free_path_angle = atan(goal / abs(turning_center[1]));
+    // float max_free_path_angle = atan(goal / abs(turning_center[1]));
+    float max_free_path_angle = atan(1);
     float free_path_length = max_free_path_angle * turning_radius;
     // float distance_to_goal = get_distance(goal, turning_center) - turning_radius;
     float clearance = 1;
@@ -251,7 +252,11 @@ tuple<float, float> Navigation::GetCurvature(const vector<Vector2f>& point_cloud
         } else {  // hit side
           hit_point_angle = acos((turning_radius - base_link_to_side) / distance_to_center);
         }
-        free_path_length = min(free_path_length, abs(angle - hit_point_angle) * turning_radius);
+        if (angle > hit_point_angle) {
+          free_path_length = min(free_path_length, (angle - hit_point_angle) * distance_to_center);
+        }// } else {
+        //   free_path_length = 0;
+        // }
       }
     }
     scores.push_back(free_path_length);// + clearance);
