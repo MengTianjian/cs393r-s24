@@ -101,7 +101,12 @@ class Navigation {
   // Map of the environment.
   vector_map::VectorMap map_;
 
-  std::tuple<float, float> GetCurvature(const std::vector<Eigen::Vector2f>& point_cloud);
+  // Last curvature.
+  float last_curvature_;
+  // Last velocity.
+  float last_velocity_;
+
+  std::tuple<float, float> GetCurvature();
   float GetVelocity(float distance_to_goal);
 };
 

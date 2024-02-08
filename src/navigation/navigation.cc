@@ -74,7 +74,9 @@ Navigation::Navigation(const string& map_name, ros::NodeHandle* n) :
     robot_omega_(0),
     nav_complete_(true),
     nav_goal_loc_(0, 0),
-    nav_goal_angle_(0) {
+    nav_goal_angle_(0),
+    last_curvature_(0),
+    last_velocity_(0) {
   map_.Load(GetMapFileFromName(map_name));
   drive_pub_ = n->advertise<AckermannCurvatureDriveMsg>(
       "ackermann_curvature_drive", 1);
@@ -134,8 +136,10 @@ void Navigation::Run() {
   // The latest observed point cloud is accessible via "point_cloud_"
   // std::cout << point_cloud_.size() << "\n";
   float new_cur, new_distance;
-  std::tie(new_cur, new_distance) = GetCurvature(point_cloud_);
+  std::tie(new_cur, new_distance) = GetCurvature();
   float new_vel = GetVelocity(new_distance);
+  last_curvature_ = new_cur;
+  last_velocity_ = new_vel;
 
   // Eventually, you will have to set the control values to issue drive commands:
   drive_msg_.curvature = new_cur;
@@ -155,13 +159,13 @@ float GetDistance(const Vector2f& point1, const Vector2f& point2) {
   return sqrt(pow(point1[0] - point2[0], 2) + pow(point1[1] - point2[1], 2));
 }
 
-tuple<float, float> Navigation::GetCurvature(const vector<Vector2f>& point_cloud) {
+tuple<float, float> Navigation::GetCurvature() {
   const float car_length = 0.535;
   const float car_width = 0.281;
   const float wheel_base = 0.324;
   // const float max_curvature = 1.0;
 
-  const float safety_margin = 0.1;
+  const float safety_margin = 0.2;
 
   const float base_link_to_side = car_width / 2;
   const float base_link_to_front = (car_length + wheel_base) / 2;
@@ -169,13 +173,15 @@ tuple<float, float> Navigation::GetCurvature(const vector<Vector2f>& point_cloud
   float goal = 5;
   Vector2f base_link(0, 0);
 
-  for (Vector2f point: point_cloud) {
+  for (Vector2f point: point_cloud_) {
     visualization::DrawCross(point, 0.01, 0xFF0000, local_viz_msg_);
   }
 
   // vector<float> curvature_candidates;
-  // for (float i = -max_curvature; i <= max_curvature; i += 0.1) {
-  //   curvature_candidates.push_back(i);
+  // for (float i = -0.5; i <= 0.5; i += 0.1) {
+  //   if (last_curvature_ + i >= -max_curvature && last_curvature_ + i <= max_curvature) {
+  //     curvature_candidates.push_back(last_curvature_ + i);
+  //   }
   // }
 
   // const vector<float> curvature_candidates {-1.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5, 0.75, 1.0};
@@ -184,12 +190,12 @@ tuple<float, float> Navigation::GetCurvature(const vector<Vector2f>& point_cloud
   vector<float> free_path_lengths;
   for (float curvature_candidate: curvature_candidates) {
     Vector2f point_of_interest;
-    if (curvature_candidate == 0) {
+    if (curvature_candidate > -0.01 && curvature_candidate < 0.01) {
       point_of_interest << 5 + base_link_to_front + safety_margin, 0;
       float free_path_length = goal;
       float clearance = 0.5;
       // float distance_to_goal = goal;
-      for (Vector2f point: point_cloud) {
+      for (Vector2f point: point_cloud_) {
         if (point[0] <= 0) {
           continue;
         }
@@ -245,7 +251,7 @@ tuple<float, float> Navigation::GetCurvature(const vector<Vector2f>& point_cloud
       point_of_interest << sin(max_free_path_angle) * turning_radius, (cos(max_free_path_angle)-1)*turning_radius;
     }
 
-    for (Vector2f point: point_cloud) {
+    for (Vector2f point: point_cloud_) {
       if (point[0] <= 0) {
         continue;
       }
