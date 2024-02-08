@@ -199,7 +199,10 @@ tuple<float, float> Navigation::GetCurvature() {
       float clearance = 0.5;
       float distance_to_goal = 0;
       for (Vector2f point: point_cloud_) {
-        if (point[0] <= 0) {
+        if (point[0] <= base_link_to_front + safety_margin) {
+          continue;
+        }
+        if (point[0] >= goal[0] + base_link_to_front + safety_margin) {
           continue;
         }
         if (abs(point[1]) < base_link_to_side + safety_margin) {  // hit front
