@@ -21,6 +21,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <iomanip>
 #include "gflags/gflags.h"
 #include "eigen3/Eigen/Dense"
 #include "eigen3/Eigen/Geometry"
@@ -163,45 +164,48 @@ tuple<float, float> Navigation::GetCurvature() {
   const float car_length = 0.535;
   const float car_width = 0.281;
   const float wheel_base = 0.324;
-  // const float max_curvature = 1.0;
+  const float max_curvature = 1.0;
 
-  const float safety_margin = 0.2;
+  const float safety_margin = 0.1;
 
   const float base_link_to_side = car_width / 2;
   const float base_link_to_front = (car_length + wheel_base) / 2;
 
-  float goal = 5;
+  Vector2f goal(5, 0);
   Vector2f base_link(0, 0);
 
   for (Vector2f point: point_cloud_) {
     visualization::DrawCross(point, 0.01, 0xFF0000, local_viz_msg_);
   }
 
-  // vector<float> curvature_candidates;
+  vector<float> curvature_candidates;
   // for (float i = -0.5; i <= 0.5; i += 0.1) {
   //   if (last_curvature_ + i >= -max_curvature && last_curvature_ + i <= max_curvature) {
   //     curvature_candidates.push_back(last_curvature_ + i);
   //   }
   // }
-
+  for (float i = -max_curvature; i <= max_curvature; i += 0.05) {
+    curvature_candidates.push_back(i);
+  }
   // const vector<float> curvature_candidates {-1.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5, 0.75, 1.0};
-  const vector<float> curvature_candidates {-1.0, -0.9, -0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0};
+  // const vector<float> curvature_candidates {-1.0, -0.9, -0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0};
   vector<float> scores;
   vector<float> free_path_lengths;
   for (float curvature_candidate: curvature_candidates) {
     Vector2f point_of_interest;
     if (curvature_candidate > -0.01 && curvature_candidate < 0.01) {
-      point_of_interest << 5 + base_link_to_front + safety_margin, 0;
-      float free_path_length = goal;
+      point_of_interest << goal[0] + base_link_to_front + safety_margin, 0;
+      float free_path_length = goal[0];
       float clearance = 0.5;
-      // float distance_to_goal = goal;
+      float distance_to_goal = 0;
       for (Vector2f point: point_cloud_) {
         if (point[0] <= 0) {
           continue;
         }
         if (abs(point[1]) < base_link_to_side + safety_margin) {  // hit front
           if (point[0] - base_link_to_front - safety_margin < free_path_length) {
-            point_of_interest << point[0], 0;
+            point_of_interest << point[0], point[1];
+            distance_to_goal = goal[0] - point[0] + safety_margin + base_link_to_front;
           }
           free_path_length = min(free_path_length, point[0] - base_link_to_front - safety_margin);
           clearance = 0;
@@ -210,35 +214,36 @@ tuple<float, float> Navigation::GetCurvature() {
           // distance_to_goal = min(distance_to_goal, abs(goal[1]));
         }
       }
-      scores.push_back(free_path_length + 2 * clearance);
+      scores.push_back(free_path_length + 3 * clearance - 0.1 * distance_to_goal);
       free_path_lengths.push_back(free_path_length);
 
       visualization::DrawCross(point_of_interest, 0.1, 0xFF0000, local_viz_msg_);
-      visualization::DrawLine(base_link, point_of_interest, 0xFF0000, local_viz_msg_);
+      Vector2f free_path_point(free_path_length, 0);
+      visualization::DrawLine(base_link, base_link + free_path_point, 0xFF0000, local_viz_msg_);
       continue;
     }
     float turning_radius = abs(1 / curvature_candidate);
     // float steering_angle = atan(wheel_base / turning_radius);
-    float min_radius = turning_radius - base_link_to_side;
+    float min_radius = turning_radius - base_link_to_side - safety_margin;
     Vector2f turning_center;
     Vector2f front_close;
     Vector2f front_far;
     if (curvature_candidate < 0) {
       turning_center << 0.0, -turning_radius;
-      front_close << base_link_to_front, -base_link_to_side;
-      front_far << base_link_to_front, base_link_to_side;
+      front_close << base_link_to_front + safety_margin, -base_link_to_side - safety_margin;
+      front_far << base_link_to_front + safety_margin, base_link_to_side + safety_margin;
     } else {
       turning_center << 0.0, turning_radius;
-      front_close << base_link_to_front, base_link_to_side;
-      front_far << base_link_to_front, -base_link_to_side;
+      front_close << base_link_to_front + safety_margin, base_link_to_side + safety_margin;
+      front_far << base_link_to_front + safety_margin, -base_link_to_side - safety_margin;
     }
     float max_radius = GetDistance(turning_center, front_far);
     float front_radius = GetDistance(turning_center, front_close);
 
-    float max_free_path_angle = atan(goal / turning_radius);
+    float max_free_path_angle = atan(goal[0] / turning_radius);
     float angle_of_interest = max_free_path_angle;
-    float free_path_length = min(max_free_path_angle * turning_radius, goal);
-    // float distance_to_goal = get_distance(goal, turning_center) - turning_radius;
+    float free_path_length = max_free_path_angle * turning_radius;
+    float distance_to_goal = GetDistance(goal, turning_center) - turning_radius;
     float clearance = 0.5;
     if (turning_radius > front_radius) {
       max_free_path_angle += asin(base_link_to_front / turning_radius);
@@ -252,35 +257,39 @@ tuple<float, float> Navigation::GetCurvature() {
     }
 
     for (Vector2f point: point_cloud_) {
-      if (point[0] <= 0) {
+      if (point[0] <= front_far[0]) {
         continue;
       }
-      if (curvature_candidate < 0 && point[1] < turning_center[1]) {
-        continue;
-      }
-      if (curvature_candidate > 0 && point[1] > turning_center[1]) {
+      if (abs(point[1]) > abs(turning_center[1])) {
         continue;
       }
       float angle = atan(point[0] / abs(turning_center[1] - point[1]));
-      if (angle >= max_free_path_angle) {
+      // if (angle >= max_free_path_angle) {
+      //   continue;
+      // }
+      if (curvature_candidate > 0 && point[1] < front_far[1]) {
+        continue;
+      } else if (curvature_candidate < 0 && point[1] > front_far[1]) {
         continue;
       }
       float distance_to_center = GetDistance(point, turning_center);
-      if (distance_to_center < min_radius - safety_margin) {
-        clearance = min(clearance, min_radius - distance_to_center - safety_margin);
-      } else if (distance_to_center > max_radius + safety_margin) {
-        clearance = min(clearance, distance_to_center - max_radius - safety_margin);
+      if (distance_to_center < min_radius) {
+        clearance = min(clearance, min_radius - distance_to_center);
+      } else if (distance_to_center > max_radius) {
+        clearance = min(clearance, distance_to_center - max_radius);
       } else {
         float hit_point_angle;
         if (distance_to_center > front_radius) {  // hit front
-          hit_point_angle = asin(base_link_to_front / distance_to_center);
+          hit_point_angle = asin(front_far[0] / distance_to_center);
         } else {  // hit side
           hit_point_angle = acos(min_radius / distance_to_center);
         }
         if (angle > hit_point_angle) {
-          if ((angle - hit_point_angle) * turning_radius > free_path_length) {
+          if ((angle - hit_point_angle) * turning_radius < free_path_length) {
             angle_of_interest = angle;
             point_of_interest << point[0], point[1];
+            Vector2f free_path_point(turning_radius * sin(hit_point_angle), turning_radius * (1 - cos(hit_point_angle)));
+            distance_to_goal = GetDistance(free_path_point, goal);
             clearance = 0;
           }
           free_path_length = min(free_path_length, (angle - hit_point_angle) * turning_radius);
@@ -291,7 +300,7 @@ tuple<float, float> Navigation::GetCurvature() {
         // }
       }
     }
-    scores.push_back(free_path_length + 2 * clearance);
+    scores.push_back(free_path_length + 3 * clearance - 0.1 * distance_to_goal);
     free_path_lengths.push_back(free_path_length);
 
     visualization::DrawCross(point_of_interest, 0.1, 0xFF0000, local_viz_msg_);
@@ -302,11 +311,11 @@ tuple<float, float> Navigation::GetCurvature() {
     }
   }
 
-  float max_score = 0;
+  float max_score = -10;
   float curvature = 0;
   float distance_to_goal = 0;
   for (size_t i = 0; i < scores.size(); i++) {
-    cout << "Cur: " << curvature_candidates[i] << "\t Dist: "<< free_path_lengths[i] << "\n";
+    cout << std::fixed << std::setprecision(2) << "Cur: " << curvature_candidates[i] << "\t S: "<< scores[i] << "\t FPL: " << free_path_lengths[i] << "\n";
     if (scores[i] > max_score) {
       max_score = scores[i];
       curvature = curvature_candidates[i];
