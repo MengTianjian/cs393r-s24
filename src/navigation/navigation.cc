@@ -135,7 +135,7 @@ void Navigation::Run() {
   // std::cout << point_cloud_.size() << "\n";
   float new_cur, new_distance;
   std::tie(new_cur, new_distance) = GetCurvature(point_cloud_);
-  float new_vel = GetVelocity(robot_vel_, new_distance);
+  float new_vel = GetVelocity(new_distance);
 
   // Eventually, you will have to set the control values to issue drive commands:
   drive_msg_.curvature = new_cur;
@@ -212,6 +212,7 @@ tuple<float, float> Navigation::GetCurvature(const vector<Vector2f>& point_cloud
       continue;
     }
     float turning_radius = abs(1 / curvature_candidate);
+    // float steering_angle = atan(wheel_base / turning_radius);
     float min_radius = turning_radius - base_link_to_side;
     Vector2f turning_center;
     Vector2f front_close;
@@ -310,23 +311,21 @@ tuple<float, float> Navigation::GetCurvature(const vector<Vector2f>& point_cloud
   return std::make_tuple(curvature, distance_to_goal);
 }
 
-float Navigation::GetVelocity(const Vector2f& vel, float distance_to_goal) {  // TOC
+float Navigation::GetVelocity(float distance_to_goal) {  // TOC
   const float max_acc = 4;
-  const float max_dec = 4.0;// 4.0;
+  const float max_dec = 4.0;
   const float max_vel = 1;
   const float update_interval = 0.05;
   const float latency = 0.1;
-  // Vector2f base_link(0, 0);
-  std::cout << distance_to_goal << "\n";
 
-  float x_3 = pow(vel[0], 2) / (2 * max_dec) + latency * vel[0];
-  x_3 += vel[0] * latency;
+  float x_3 = pow(robot_vel_[0], 2) / (2 * max_dec) + latency * robot_vel_[0];
+  x_3 += robot_vel_[0] * latency;
   if (x_3 >= distance_to_goal) {  // Deceleration
-    return vel[0] - max_dec * update_interval;
-  } else if (vel[0] >= max_vel) {  // Cruise
-    return max(vel[0] - max_dec * update_interval, max_vel);
+    return robot_vel_[0] - max_dec * update_interval;
+  } else if (robot_vel_[0] >= max_vel) {  // Cruise
+    return max(robot_vel_[0] - max_dec * update_interval, max_vel);
   } else {
-    return min(vel[0] + max_acc * update_interval, max_vel);
+    return min(robot_vel_[0] + max_acc * update_interval, max_vel);
   }
   return 0;
 }
